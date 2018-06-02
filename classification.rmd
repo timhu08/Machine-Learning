@@ -1,0 +1,369 @@
+---
+title: "Classification"
+author: "Tim Hu"
+date: "2018年5月25日"
+output: html_document
+---
+### 讀取raw data
+data = read.csv('rawdata.csv',header=F,sep=',')
+
+
+### data cleaning
+```{R}
+colnames(data)=c('Meditation.Level','Attention.Level','delta','theta','lowAlpha','highAlpha','lowBeta','highBeta','lowGamma','midGamma','Poor.Signal.Level')
+
+#去掉"Meditation.Level","Attention.Level"為0的資料
+q = !data$Meditation.Level == 0 & !test$Attention.Level == 0
+data = data[q,]
+
+#變數篩選
+variable.list = !names(data) %in% c("Meditation.Level", "Attention.Level", "Poor.Signal.Level", "midGamma", "lowGamma","delta","theta")
+A = data[,variable.list]
+
+
+A=cbind(A,c("happy"))        
+colnames(A)[ncol(A)]='mood'
+str(A)
+
+all.data = rbind(A,B,C)        # A = happy ,B = scary ,C = sad
+```
+### 數值變數作正規化
+all_s =scale(all.data[,-5])
+
+#正規化後的變數平均數為0, 標準差為1
+round(mean(all_s[,2]),3)
+round(sd(all_s[,2]),3)
+
+all_s = as.data.frame(all_s)
+all_s = cbind(all_s,all.data[,5])
+colnames(all_s)[ncol(all_s)]='mood'
+str(all_s)
+
+### 將整理好的資料儲存RData中繼檔
+save(x=all.data,file="all.RData")
+load('all.RData')
+
+#儲存RData中繼檔
+save(x=all_s,file="all_s.RData")
+load('all_s.RData')
+
+### 建立train set跟test set
+```{R}
+splitdf = function(df, train.ratio, seed=NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  index = 1:nrow(df)
+  id = sample(index, trunc(length(index)*train.ratio))
+  train = df[id, ]
+  test = df[-id, ]
+  list(trainset=train,testset=test)
+}
+
+splits = splitdf(all.data, 0.7, 12345 )
+lapply(splits, dim)
+
+trainset = splits$trainset
+testset = splits$testset
+
+#確認訓練樣本與測試樣本分不一致
+par(mfrow=c(1,2)) 
+#讓R的繪圖視窗切割成 1 X 2 的方塊
+plot(trainset$mood)
+plot(testset$mood)
+```
+
+
+### 決策樹(CART)
+```{R}
+#install.packages('rpart')
+library('rpart')
+#使用rpart(CART)建立決策樹模型
+con = rpart.control(cp=0.01)
+mood.rp<-rpart(mood ~., data=trainset,control = con)
+summary(mood.rp)
+
+par(mfrow=c(1,1))
+plot(mood.rp, uniform=TRUE,branch = 0.6, margin=0.1)
+text(mood.rp, all=TRUE, use.n=TRUE, cex=0.7)
+
+printcp(mood.rp)
+plotcp(mood.rp)
+
+
+#找出minimum cross-validation errors
+min_row = which.min(mood.rp$cptable[,"xerror"])
+mood.cp = mood.rp$cptable[min_row, "CP"]
+#將mood.cp設為臨界值來修剪樹
+prune.tree=prune(mood.rp, cp=mood.cp)
+plot(prune.tree, uniform=TRUE,branch = 0.6, margin=0.1)
+text(prune.tree, all=TRUE, use.n=TRUE, cex=0.7)
+
+predictions <-predict(prune.tree, testset, type='class')
+table(predictions,testset$mood)
+
+#install.packages('caret')
+#install.packages('e1071')
+library('caret')
+library('e1071')
+confusionMatrix(table(predictions, testset$mood))
+
+cm = table( predictions,testset$mood, dnn = c("預測", "實際"))
+accuracy <- sum(diag(cm)) / sum(cm)
+accuracy
+```
+
+
+### k-fold cross-validation
+```{R}
+ind = cut(1:nrow(trainset), breaks=10, labels=F)
+ind
+
+accuracies = c()
+for (i in 1:10) {
+  fit = rpart(formula=mood~., data=trainset[ind != i,])
+  predictions = predict(fit, trainset[ind == i, ! names(trainset) %in% c("mood")], type="class")
+  correct_count = sum(predictions == trainset[ind == i,c("mood")])
+  accuracies = append(correct_count / nrow(trainset[ind == i,]), accuracies)
+}
+accuracies
+mean(accuracies)
+```
+
+
+### 隨機森林(Random Forest)
+```{R}
+library('caret')
+control=trainControl(method="repeatedcv", number=10, repeats=3,classProbs = TRUE,summaryFunction = multiClassSummary)
+#install.packages('MLmetrics')
+library('MLmetrics')
+caret_rf = train(mood~.,data=trainset,method='rf', trControl=control)
+caret_rf
+predictions = predict(caret_rf, testset)
+confusionMatrix(table(predictions,testset$mood))
+cm = table( predictions,testset$mood, dnn = c("預測", "實際"))
+accuracy <- sum(diag(cm)) / sum(cm)
+accuracy
+
+#randomForest集群分析圖
+(data.clutRF=randomForest(all.data[,-5]))
+MDSplot(data.clutRF,all.data$mood)
+
+### find importance variable
+library('caret')
+importance = varImp(caret_rf, scale=FALSE)
+importance
+plot(importance)
+```
+
+
+### 預測新資料分類並匯出txt檔
+```{R}
+library(C50)
+test = read.csv('10_happy_2.csv',header=F,sep=',')
+colnames(test)=c('Meditation.Level','Attention.Level','delta','theta','lowAlpha','highAlpha','lowBeta','highBeta','lowGamma','midGamma','Poor.Signal.Level')
+
+#去掉"Meditation.Level","Attention.Level"為0的資料
+q = !test$Meditation.Level == 0 & !test$Attention.Level == 0
+test = test[q,]
+
+variable.list = !names(test) %in% c("Meditation.Level", "Attention.Level", "Poor.Signal.Level", "midGamma", "lowGamma","delta","theta")
+a1 = test[,variable.list]
+
+#build C5.0 model
+test.tree=C5.0(mood~ . ,data=all.data)
+#predict a1
+test.pred=predict(test.tree,a1,type='class')
+#merge predict result and output
+(testall=data.frame(a1,mood.Pred=test.pred))
+write.table(testall,"C:\\Users\\RD\\Desktop\\bigdata\\test\\rawdata\\testall.txt",row.names=F)
+```
+
+
+### k-nearest neighbor classifer(KNN)
+```{R}
+#安裝並載入class套件
+library(class)
+library(dplyr)
+#(參數1)準備訓練樣本組答案
+trainLabels <- trainset$mood
+
+#(參數2)(參數3)去除兩個樣本組答案
+knnTrain <- trainset[, -5]
+knnTest <- testset[, -5]
+
+#計算k值(幾個鄰居)通常可以用資料數的平方根
+n = nrow(all.data)
+kv <- round(sqrt(n))
+kv
+
+#建立模型 
+prediction <- knn(train = knnTrain, test = knnTest, cl = trainLabels, k = kv)
+
+#評估正確性
+cm <- table(x = testset$mood, y = prediction, dnn = c("實際", "預測"))
+cm
+
+knnaccuracy <- sum(diag(cm)) / sum(cm)
+knnaccuracy
+
+
+# 選擇k value
+klist <- seq(1:(kv + kv))  #平方根算出來的k值微調(tuning)到k+k的距離
+knnFunction <- function(x, knnTrain, knnTest, trainLabels, testLabels) {
+  prediction <- knn(train = knnTrain, test = knnTest, cl = trainLabels, k = x)
+  cm <- table(x = testLabels, y = prediction)
+  accuracy <- sum(diag(cm)) / sum(cm)
+}
+accuracies <- sapply(klist, knnFunction, knnTrain = knnTrain, knnTest = knnTest, trainLabels = trainLabels, testLabels = testset$mood)
+
+# k value與準確度視覺化
+df <- data.frame(
+  kv = klist, accuracy = accuracies)
+
+#找出最佳的K值,求accuracy
+which.max(df$accuracy)
+df[max_kv,'accuracy']
+
+ggplot(df, aes(x = kv, y = accuracy, label = kv, color = accuracy)) +
+  geom_point(size = 5) + geom_text(vjust = 2)
+```
+
+
+### SVM
+```{R}
+#install.packages('e1071')
+library('e1071')
+model  = svm(mood~., data = trainset, kernel="linear", cost=1, gamma = 1/ncol(trainset))
+
+summary(model)
+svm.pred = predict(model, testset[, !names(testset) %in% c("mood")])
+svm.table=table(svm.pred, testset$mood)
+svm.table
+confusionMatrix(svm.table)
+
+
+tuned = tune.svm(mood~., data = trainset, gamma = 10^(-6:-1), cost = 10^(1:2))
+summary(tuned)
+model.tuned = svm(mood~., data = trainset, gamma = tuned$best.parameters$gamma, cost = tuned$best.parameters$cost)
+
+summary(model.tuned)
+svm.tuned.pred = predict(model.tuned, testset[, !names(testset) %in% c("mood")])
+svm.tuned.table=table(svm.tuned.pred, testset$mood)
+svm.tuned.table
+library('caret')
+library('e1071')
+confusionMatrix(svm.tuned.table)
+
+
+library('caret')
+control=trainControl(method="repeatedcv", number=10, repeats=1,classProbs =TRUE,summaryFunction = multiClassSummary)
+svm_linear_model = train(mood~., data=trainset, method='svmLinear', trControl=control)
+svm_linear_model
+
+predictions = predict(svm_linear_model,testset,type='raw') # type must be either "raw" or "prob"
+confusionMatrix(table(predictions,testset$mood))
+
+
+tune_funs = expand.grid(sigma = seq(0.1,1,0.1),C = seq(0.1,1,0.1) )
+svm_radial_model = train(mood~., data=trainset, method='svmRadial', trControl=control,tuneGrid = tune_funs)
+svm_radial_model
+predictions = predict(svm_radial_model,testset,type='class')
+confusionMatrix(table(predictions,testset$churn))
+
+##svm
+#載入套件 
+library(e1071)
+# 建立模型
+svmM <- svm(mood ~ ., data = trainset, probability = TRUE)
+# 預測
+results <- predict(svmM, testset, probability = TRUE)
+# 評估
+cm <- table(x = testset$mood, y = results)
+cm
+SVMaccuracy <- sum(diag(cm)) / sum(cm)
+SVMaccuracy
+```
+
+
+### navie bayes
+```{R}
+nbcm <- naiveBayes(mood ~ ., data = trainset)
+results <- predict(nbcm, testset)
+# 評估
+cm <- table(x = testset$mood, y = results)
+cm
+naiveBayesaccuracy <- sum(diag(cm)) / sum(cm)
+naiveBayesaccuracy
+
+#畫圖比較
+df <- data.frame(perf = c(knnaccuracy, SVMaccuracy, naiveBayesaccuracy), name = c("KNN", "SVM", "naiveBay"));
+
+ggplot(df, aes(x = name, y = perf, color = name, label = perf)) +
+  geom_point(size = 5) + geom_text(vjust = 2)
+```
+
+
+### XGboost
+```{R}
+dataTrain_matrix = Matrix::sparse.model.matrix(mood ~ .-1, data = trainset)
+# 把目標變數 mood 三個分類轉成 0,1,2. 必須從 0 開始
+# recode Y as 0,1,2,...,m-1
+Y_train = as.integer(trainset$mood) - 1
+#output_vector_train = ifelse( trainset[,'mood'] == "happy",1,trainset[,'mood'] )-1
+train_matrix <- xgb.DMatrix(data = as.matrix(dataTrain_matrix),label=Y_train)
+
+
+dataTest_matrix = Matrix::sparse.model.matrix(mood ~ .-1, data = testset)
+Y_test = as.integer(testset$mood) - 1
+#output_vector_test = ifelse( testset[,'mood'] == "happy",1,testset[,'mood'] )-1
+test_matrix <- xgb.DMatrix(data = as.matrix(dataTest_matrix),label=Y_test)
+
+# mood 分類數目
+# number of categories in response variable
+m = nlevels(trainset$mood)
+params = list( "objective" = "multi:softprob", #結果包含預測機率與預測類別
+               "eval_metric" = "mlogloss", #損失函數
+               "num_class" = m # 設定Y的類別
+)
+
+watchlist <- list(train=train_matrix , test=test_matrix) #設定建模時需監控的樣本清單
+
+bst_model <- xgb.train(params = params,
+                       data = train_matrix,
+                       nrounds = 100,
+                       watchlist = watchlist,
+                       eta = 0.3, # Learning Rate, low -> more robust to overfitting
+                       max.depth = 5, #預設值:6，每顆樹的最大深度，樹高越深，越容易overfitting
+                       seed =123
+)
+
+# Overfitting檢視
+evalue_log <- bst_model$evaluation_log
+plot(evalue_log$iter, evalue_log$train_mlogloss, col='blue')
+lines(evalue_log$iter, evalue_log$test_mlogloss, col='red')
+# 依照最佳迭代次數再次建模
+bst_model <- xgb.train(params = params,
+                       data = train_matrix,
+                       nrounds = 10,
+                       watchlist = watchlist,
+                       eta = 0.3, # Learning Rate, low - more robust to overfitting
+                       max.depth = 5, #預設值:6，每顆樹的最大深度，樹高越深，越容易overfitting
+                       seed =123
+)
+#檢視重要變數
+var_feature <- xgb.importance(colnames(train_matrix), model = bst_model)
+print(var_feature)
+xgb.plot.importance(var_feature)
+
+p <- predict(bst_model, newdata = test_matrix) #模型評分，n*2筆(因為每人有流失與未流失的機率)
+pred <- matrix(p, nrow=m, ncol=length(p)/m ) %>% #轉成 2*n matrix格式
+  t() %>% #轉成 n*2 matrix格式
+  data.frame() %>% #轉成data.frame格式
+  mutate(label = Y_test, max_prob = max.col(., "last")-1 )
+#取得最大機率值的欄位數，然後減1
+
+table.test = table(Y_test,pred$max_prob)
+cat("Correct Classification Ratio(test)=", sum(diag(table.test))/sum(table.test)*100,"%\n")
+#Correct Classification Ratio(test)= 65.5303 %  /17
+#Correct Classification Ratio(test)= 66.21212 % /40
+#Correct Classification Ratio(test)= 65.45455 % /10 best
+```
