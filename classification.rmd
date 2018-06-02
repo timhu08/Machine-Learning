@@ -30,8 +30,7 @@ all.data = rbind(A,B,C)        # A = happy ,B = scary ,C = sad
 ### 數值變數作正規化
 all_s =scale(all.data[,-5])
 
-#正規化後的變數平均數為0, 標準差為1
-
+## 正規化後的變數平均數為0, 標準差為1
 round(mean(all_s[,2]),3)
 round(sd(all_s[,2]),3)
 
@@ -44,8 +43,7 @@ str(all_s)
 save(x=all.data,file="all.RData")
 load('all.RData')
 
-#儲存RData中繼檔
-
+## 儲存RData中繼檔
 save(x=all_s,file="all_s.RData")
 load('all_s.RData')
 
