@@ -85,7 +85,7 @@ par(mfrow=c(1,1))
 plot(mood.rp, uniform=TRUE,branch = 0.6, margin=0.1)
 text(mood.rp, all=TRUE, use.n=TRUE, cex=0.7)
 
-printcp(mood.rp)
+printcp(mood.rp)  #檢查樹模型的結果,printcp()是用表格的方式呈現
 plotcp(mood.rp)
 
 
@@ -281,6 +281,64 @@ cm <- table(x = testset$mood, y = results)
 cm
 SVMaccuracy <- sum(diag(cm)) / sum(cm)
 SVMaccuracy
+
+#svm(One vs One)
+library('e1071')
+model  = svm(mood~., data = trainset, kernel="radial", gamma = 1/ncol(trainset
+),cost=10,scale=TRUE,probabilities=TRUE,na.action=na.omit)
+
+summary(model)
+svm.pred = predict(model, testset[, !names(testset) %in% c("mood")])
+svm.table=table(svm.pred, testset$mood)
+svm.table
+confusionMatrix(svm.table)
+cm = table( svm.pred,testset$mood, dnn = c("預測", "實際"))
+accuracy <- sum(diag(cm)) / sum(cm)
+accuracy
+
+
+#svm(One vs Rest)
+train_happy<-trainset
+train_happy$mood<-as.character(train_happy$mood)
+train_happy$mood[train_happy$mood!="happy"]<-'0'
+train_happy$mood[train_happy$mood =="happy"]<-'1'
+train_happy$mood<-as.integer(train_happy$mood)
+model_happy<-svm(mood~.,data=train_happy,kernel="radial",gamma=.1,cost=10,scale=TRUE,probabilities=TRUE,na.action=na.omit)
+summary(model_happy)
+predict_happy<-predict(model_happy,testset[,-5])
+tab_happy<-table(predict_happy,testset[,5])
+tab_happy
+
+train_sad<-trainset
+train_sad$mood<-as.character(train_sad$mood)
+train_sad$mood[train_sad$mood!="sad"]<-'0'
+train_sad$mood[train_sad$mood =="sad"]<-'1'
+train_sad$mood<-as.integer(train_happy$mood)
+model_sad<-svm(mood~.,data=train_sad,kernel="radial",gamma=.1,cost=10,scale=TRUE,probabilities=TRUE,na.action=na.omit)
+summary(model_sad)
+predict_sad<-predict(model_sad,testset[,-5])
+tab_sad<-table(predict_sad,testset[,5])
+tab_sad
+
+train_scary<-trainset
+train_scary$mood<-as.character(train_scary$mood)
+train_scary$mood[train_scary$mood!="scary"]<-'0'
+train_scary$mood[train_scary$mood =="scary"]<-'1'
+train_scary$mood<-as.integer(train_scary$mood)
+model_scary<-svm(mood~.,data=train_scary,kernel="radial",gamma=.1,cost=10,scale=TRUE,probabilities=TRUE,na.action=na.omit)
+summary(model_scary)
+predict_scary<-predict(model_scary,testset[,-5])
+tab_scary<-table(predict_scary,testset[,5])
+tab_scary
+
+bind<-cbind(predict_happy,predict_sad,predict_scary)
+classnames = c('happy', 'sad', 'scary')
+a<-apply(bind,1,classnames[which.max])
+b<-cbind(bind,a)
+table(b[,4],testset$mood)
+cm <- table( b[,4],testset$mood, dnn = c("預測", "實際"))
+accuracy <- sum(diag(cm)) / sum(cm)
+accuracy
 ```
 
 
